@@ -1,0 +1,62 @@
+# Unreal Engine
+Binaries/
+DerivedDataCache/
+Intermediate/
+Saved/
+.vs/
+.vscode/
+*.VC.db
+*.VC.db-shm
+
+# Project files
+*.sln
+*.sln.DotSettings
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+
+# Build artifacts
+Build/
+*.exe
+*.dll
+*.lib
+*.obj
+*.o
+
+# IDE
+.vscode/
+.vs/
+*.code-workspace
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# Node/Web
+Web/node_modules/
+Web/dist/
+Web/.env.local
+Web/.env
+
+# Python
+Python/__pycache__/
+*.pyc
+*.pyo
+venv/
+.python-version
+
+# Rust
+Server/target/
+Server/Cargo.lock
+Server/**/*.rs.bk
+
+# Logs
+*.log
+
+# Package manager
+package-lock.json
+yarn.lock
