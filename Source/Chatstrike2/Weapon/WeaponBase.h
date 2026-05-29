@@ -28,6 +28,9 @@ public:
     UPROPERTY(BlueprintReadWrite, Category = "Weapon")
     int32 CurrentAmmo = 30;
 
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon")
+    float ReloadTime = 2.0f;
+
     UFUNCTION(BlueprintCallable, Category = "Weapon")
     void Fire(const FVector& ShootDirection);
 
@@ -37,10 +40,22 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Weapon")
     bool CanFire() const;
 
+    UFUNCTION(BlueprintCallable, Category = "Weapon")
+    bool IsReloading() const { return bIsReloading; }
+
+    UFUNCTION(BlueprintCallable, Category = "Weapon")
+    float GetReloadProgress() const;
+
 protected:
     UPROPERTY()
     ACharacter* OwnerCharacter;
 
     float LastFireTime = 0.0f;
     bool bIsReloading = false;
+    float ReloadStartTime = 0.0f;
+
+    FTimerHandle ReloadTimerHandle;
+
+    UFUNCTION()
+    void OnReloadComplete();
 };
