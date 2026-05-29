@@ -1,0 +1,18 @@
+{
+    "FileVersion": 3,
+    "EngineAssociation": "5.4",
+    "Category": "Shooter",
+    "Description": "CS2-like hybrid FPS shooter with C++, Rust, TypeScript, Python, and shader support",
+    "Modules": [
+        {
+            "Name": "Chatstrike2",
+            "Type": "Runtime",
+            "LoadingPhase": "Default",
+            "PlatformAllowList": [
+                "Win64",
+                "Linux",
+                "Mac"
+            ]
+        }
+    ]
+}
