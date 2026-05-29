@@ -1,0 +1,62 @@
+// Epic Games format
+// Input configuration for Chatstrike2
+// To be used with Enhanced Input System
+
+{
+    "InputActions": [
+        {
+            "Name": "IA_Move",
+            "Type": "Value",
+            "ValueType": "Axis2D",
+            "Description": "Character movement input (WASD)"
+        },
+        {
+            "Name": "IA_Look",
+            "Type": "Value",
+            "ValueType": "Axis2D",
+            "Description": "Camera look input (Mouse)"
+        },
+        {
+            "Name": "IA_Fire",
+            "Type": "Digital",
+            "Description": "Fire weapon (Left Mouse Button)"
+        },
+        {
+            "Name": "IA_Reload",
+            "Type": "Digital",
+            "Description": "Reload weapon (R)"
+        },
+        {
+            "Name": "IA_Jump",
+            "Type": "Digital",
+            "Description": "Jump (Space)"
+        },
+        {
+            "Name": "IA_Crouch",
+            "Type": "Digital",
+            "Description": "Crouch (Ctrl)"
+        },
+        {
+            "Name": "IA_Sprint",
+            "Type": "Digital",
+            "Description": "Sprint (Shift)"
+        }
+    ],
+    "KeyMappings": {
+        "IA_Move": {
+            "W": "Forward",
+            "S": "Backward",
+            "A": "Left",
+            "D": "Right"
+        },
+        "IA_Look": {
+            "MouseX": "Right",
+            "MouseY": "Up"
+        },
+        "IA_Fire": "LeftMouseButton",
+        "IA_Reload": "R",
+        "IA_Jump": "Space",
+        "IA_Crouch": "LeftControl",
+        "IA_Sprint": "LeftShift"
+    }
+}
