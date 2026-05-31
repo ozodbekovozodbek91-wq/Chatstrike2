@@ -1,3 +1,4 @@
+use crate::database::DatabasePool;
 use crate::models::*;
 use crate::ServerState;
 use serde_json::{json, Value};
@@ -46,6 +47,12 @@ pub async fn handle_command(
         ServerCommand::GetStats => {
             handle_get_stats(player_id, state).await
         }
+        ServerCommand::GetLeaderboard { top } => {
+            handle_get_leaderboard(top, state).await
+        }
+        ServerCommand::GetMatchHistory { limit } => {
+            handle_get_match_history(player_id, limit, state).await
+        }
         ServerCommand::Ping => {
             json!({
                 "status": "ok",
@@ -58,6 +65,12 @@ pub async fn handle_command(
         }
         ServerCommand::Chat { message } => {
             handle_chat(&message, player_id, state).await
+        }
+        ServerCommand::EndMatch { kills, deaths, assists, score, won, duration } => {
+            handle_end_match(kills, deaths, assists, score, won, duration, player_id, state).await
+        }
+        ServerCommand::GetLeaderboardByType { board_type, limit } => {
+            handle_get_leaderboard_by_type(&board_type, limit, state).await
         }
     }
 }
@@ -78,16 +91,19 @@ async fn handle_login(
                 std::sync::Arc::new(tokio::sync::RwLock::new(player)),
             );
             
-            log::info!("✅ {} logged in successfully", username);
+            log::info!("✅ {} logged in successfully (ID: {})", username, user.id);
             
             json!({
                 "status": "ok",
                 "message": "Login successful",
                 "player_id": player_id,
+                "user_id": user.id,
                 "user": {
                     "username": user.username,
                     "level": user.level,
                     "rank": user.rank,
+                    "experience": user.experience,
+                    "rank_points": user.rank_points,
                 }
             })
         }
@@ -111,11 +127,12 @@ async fn handle_register(
     log::info!("📝 Register attempt: {} ({})", username, email);
     
     match state.db.create_user(&username, &password, &email).await {
-        Ok(_) => {
+        Ok(user) => {
             log::info!("✅ User {} registered successfully", username);
             json!({
                 "status": "ok",
                 "message": "Registration successful",
+                "user_id": user.id,
                 "username": username,
                 "email": email
             })
@@ -183,7 +200,7 @@ async fn handle_join_room(
                 "status": "ok",
                 "message": "Joined room",
                 "room_id": room_id,
-                "players": room.players,
+                "players_count": room.players.len(),
                 "map": room.map_name
             })
         } else {
@@ -424,6 +441,162 @@ async fn handle_get_stats(player_id: &str, state: &ServerState) -> Value {
     }
 }
 
+async fn handle_get_leaderboard(top: i64, state: &ServerState) -> Value {
+    match state.db.get_global_leaderboard(top).await {
+        Ok(stats) => {
+            let leaderboard: Vec<Value> = stats
+                .iter()
+                .enumerate()
+                .map(|(idx, stat)| {
+                    json!({
+                        "position": idx + 1,
+                        "user_id": stat.user_id,
+                        "kills": stat.kills,
+                        "deaths": stat.deaths,
+                        "score": stat.score,
+                        "kd_ratio": if stat.deaths > 0 {
+                            stat.kills as f32 / stat.deaths as f32
+                        } else {
+                            stat.kills as f32
+                        },
+                        "matches": stat.matches_played
+                    })
+                })
+                .collect();
+            
+            json!({
+                "status": "ok",
+                "message": "Global leaderboard",
+                "leaderboard": leaderboard
+            })
+        }
+        Err(e) => {
+            json!({
+                "status": "error",
+                "message": format!("Failed to fetch leaderboard: {}", e),
+                "code": 500
+            })
+        }
+    }
+}
+
+async fn handle_get_leaderboard_by_type(
+    board_type: &str,
+    limit: i64,
+    state: &ServerState,
+) -> Value {
+    match board_type {
+        "kills" => {
+            match state.db.get_kills_leaderboard(limit).await {
+                Ok(stats) => {
+                    let leaderboard: Vec<Value> = stats
+                        .iter()
+                        .enumerate()
+                        .map(|(idx, stat)| {
+                            json!({
+                                "position": idx + 1,
+                                "user_id": stat.user_id,
+                                "kills": stat.kills,
+                            })
+                        })
+                        .collect();
+                    
+                    json!({
+                        "status": "ok",
+                        "message": "Kills leaderboard",
+                        "leaderboard": leaderboard
+                    })
+                }
+                Err(e) => json!({
+                    "status": "error",
+                    "message": format!("Failed: {}", e),
+                    "code": 500
+                })
+            }
+        }
+        "accuracy" => {
+            match state.db.get_accuracy_leaderboard(limit).await {
+                Ok(stats) => {
+                    let leaderboard: Vec<Value> = stats
+                        .iter()
+                        .enumerate()
+                        .map(|(idx, stat)| {
+                            json!({
+                                "position": idx + 1,
+                                "user_id": stat.user_id,
+                                "accuracy": format!("{}%", (stat.accuracy * 100.0) as i32),
+                                "matches": stat.matches_played
+                            })
+                        })
+                        .collect();
+                    
+                    json!({
+                        "status": "ok",
+                        "message": "Accuracy leaderboard",
+                        "leaderboard": leaderboard
+                    })
+                }
+                Err(e) => json!({
+                    "status": "error",
+                    "message": format!("Failed: {}", e),
+                    "code": 500
+                })
+            }
+        }
+        _ => json!({
+            "status": "error",
+            "message": "Invalid leaderboard type",
+            "code": 400
+        })
+    }
+}
+
+async fn handle_get_match_history(
+    player_id: &str,
+    limit: i64,
+    state: &ServerState,
+) -> Value {
+    // Получаем user_id из сессии
+    if let Some(player_arc) = state.players.read().await.get(player_id) {
+        // В реальной системе здесь должен быть user_id из базы
+        // Для примера используем player_id как индексатор
+        match state.db.get_match_history(1, limit).await {
+            Ok(matches) => {
+                let history: Vec<Value> = matches
+                    .iter()
+                    .map(|m| {
+                        json!({
+                            "map": m.map_name,
+                            "kills": m.kills,
+                            "deaths": m.deaths,
+                            "score": m.score,
+                            "won": m.won,
+                            "date": m.ended_at
+                        })
+                    })
+                    .collect();
+                
+                json!({
+                    "status": "ok",
+                    "message": "Match history",
+                    "matches": history
+                })
+            }
+            Err(e) => json!({
+                "status": "error",
+                "message": format!("Failed: {}", e),
+                "code": 500
+            })
+        }
+    } else {
+        json!({
+            "status": "error",
+            "message": "Player not found",
+            "code": 404
+        })
+    }
+}
+
 async fn handle_update_position(
     position: Vector3,
     rotation: Vector3,
@@ -467,4 +640,55 @@ async fn handle_chat(message: &str, player_id: &str, state: &ServerState) -> Val
         "status": "ok",
         "message": "Message sent"
     })
+}
+
+async fn handle_end_match(
+    kills: i32,
+    deaths: i32,
+    assists: i32,
+    score: i32,
+    won: bool,
+    duration: i64,
+    player_id: &str,
+    state: &ServerState,
+) -> Value {
+    if let Some(player_arc) = state.players.read().await.get(player_id) {
+        let player = player_arc.read().await;
+        
+        // Записываем матч в БД
+        match state.db.record_match(
+            1, // user_id (в реальной системе должен быть из сессии)
+            "room_1",
+            "Dust2",
+            kills,
+            deaths,
+            assists,
+            score,
+            won,
+            duration,
+        ).await {
+            Ok(match_record) => {
+                log::info!("📊 Match recorded: {} kills, {} deaths", kills, deaths);
+                
+                json!({
+                    "status": "ok",
+                    "message": "Match recorded",
+                    "match_id": match_record.id,
+                    "xp_gained": score / 10,
+                    "rank_points_gained": if won { 25 } else { 5 }
+                })
+            }
+            Err(e) => json!({
+                "status": "error",
+                "message": format!("Failed to record match: {}", e),
+                "code": 500
+            })
+        }
+    } else {
+        json!({
+            "status": "error",
+            "message": "Player not found",
+            "code": 404
+        })
+    }
 }

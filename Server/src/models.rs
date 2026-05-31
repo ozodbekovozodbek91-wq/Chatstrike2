@@ -212,9 +212,13 @@ pub enum ServerCommand {
     GetPlayers,
     GetRooms,
     GetStats,
+    GetLeaderboard { top: i64 },
+    GetMatchHistory { limit: i64 },
+    GetLeaderboardByType { board_type: String, limit: i64 },
     Ping,
     UpdatePosition { position: Vector3, rotation: Vector3 },
     Chat { message: String },
+    EndMatch { kills: i32, deaths: i32, assists: i32, score: i32, won: bool, duration: i64 },
 }
 
 #[derive(Debug, Serialize, Deserialize)]

@@ -18,6 +18,17 @@ chrono = { version = "0.4", features = ["serde"] }
 tokio-util = "0.7"
 bytes = "1.0"
 
+# Database
+sqlx = { version = "0.7", features = ["runtime-tokio-native-tls", "sqlite"] }
+rusqlite = { version = "0.30", features = ["bundled"] }
+
+# Хеширование паролей
+bcrypt = "0.15"
+rand = "0.8"
+
+# Кэширование
+lru = "0.12"
+
 [profile.release]
 opt-level = 3
 lto = true
