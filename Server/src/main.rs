@@ -103,7 +103,7 @@ async fn handle_client(
                 let n = n?;
                 if n == 0 {
                     log::info!("🔌 Player {} disconnected", player_id);
-                    state.players.write().await.remove(&player_id);
+                    cleanup_player(&player_id, &state).await;
                     return Ok(());
                 }
                 
@@ -150,34 +150,79 @@ async fn handle_client(
     }
 }
 
+// ✅ ИСПРАВЛЕНИЕ: Очистка игрока при отключении
+async fn cleanup_player(player_id: &str, state: &ServerState) {
+    // Удаляем игрока из всех комнат
+    let mut rooms = state.game_rooms.write().await;
+    let mut empty_rooms = Vec::new();
+    
+    for (room_id, room_arc) in rooms.iter_mut() {
+        let mut room = room_arc.write().await;
+        room.players.retain(|p| p != player_id);
+        
+        // Отмечаем пустые комнаты для удаления
+        if room.players.is_empty() {
+            empty_rooms.push(room_id.clone());
+            log::info!("🗑️ Clearing empty room: {}", room_id);
+        }
+    }
+    
+    // Удаляем пустые комнаты
+    for room_id in empty_rooms {
+        rooms.remove(&room_id);
+    }
+    drop(rooms);
+    
+    // Удаляем самого игрока
+    state.players.write().await.remove(player_id);
+    log::info!("✅ Cleanup completed for player: {}", player_id);
+}
+
 async fn game_tick_loop(state: ServerState) {
     let mut interval = tokio::time::interval(std::time::Duration::from_millis(16)); // 60 FPS
     
     loop {
         interval.tick().await;
         
-        let rooms = state.game_rooms.read().await;
-        for (_room_id, room) in rooms.iter() {
-            let mut room_guard = room.write().await;
-            
-            // Обновляем позиции игроков
-            for player_id in &room_guard.players {
-                if let Some(player_arc) = state.players.read().await.get(player_id) {
-                    let mut player = player_arc.write().await;
+        // ✅ ИСПРАВЛЕНИЕ: Получаем список комнат один раз
+        let room_ids: Vec<String> = {
+            let rooms = state.game_rooms.read().await;
+            rooms.keys().cloned().collect()
+        };
+        
+        for room_id in room_ids {
+            if let Some(room_arc) = state.game_rooms.read().await.get(&room_id) {
+                let mut room_guard = room_arc.write().await;
+                
+                // Обновляем позиции игроков
+                let player_ids: Vec<String> = room_guard.players.iter().cloned().collect();
+                drop(room_guard); // Освобождаем lock комнаты
+                
+                for player_id in player_ids {
+                    if let Some(player_arc) = state.players.read().await.get(&player_id) {
+                        let mut player = player_arc.write().await;
+                        
+                        // ✅ ИСПРАВЛЕНИЕ: Гравитация с проверкой
+                        if player.position.z > 0.0 {
+                            player.position.z = (player.position.z - 9.81 * 0.016).max(0.0);
+                        } else {
+                            player.position.z = 0.0; // На земле
+                        }
+                        
+                        // Синхронизируем
+                        player.last_update = Utc::now();
+                    }
+                }
+                
+                // Проверяем коллизии после обновления позиций
+                if let Some(room_arc) = state.game_rooms.read().await.get(&room_id) {
+                    let mut room_guard = room_arc.write().await;
+                    check_collisions(&mut room_guard, &state).await;
                     
-                    // Применяем гравитацию и движение
-                    player.position.z -= 9.81 * 0.016; // gravity
-                    
-                    // Синхронизируем
-                    player.last_update = Utc::now();
+                    // Обновляем состояние
+                    room_guard.tick_count += 1;
                 }
             }
-            
-            // Проверяем коллизии
-            check_collisions(&mut room_guard, &state).await;
-            
-            // Обновляем состояние
-            room_guard.tick_count += 1;
         }
     }
 }
@@ -199,20 +244,29 @@ async fn stats_loop(state: ServerState) {
     }
 }
 
+// ✅ ИСПРАВЛЕНИЕ: Безопасная проверка колизий
 async fn check_collisions(room: &mut GameRoom, state: &ServerState) {
     // Проверяем столкновения между игроками и пулями
-    for bullet in &room.bullets.clone() {
+    let bullets = room.bullets.clone();
+    
+    for bullet in &bullets {
         for player_id in &room.players {
             if let Some(player_arc) = state.players.read().await.get(player_id) {
                 let mut player = player_arc.write().await;
                 
-                let dist = ((player.position.x - bullet.position.x).powi(2) +
-                           (player.position.y - bullet.position.y).powi(2) +
-                           (player.position.z - bullet.position.z).powi(2)).sqrt();
+                // ✅ ИСПРАВЛЕНИЕ: Используем squared distance для избежания sqrt
+                let dist_sq = (player.position.x - bullet.position.x).powi(2) +
+                             (player.position.y - bullet.position.y).powi(2) +
+                             (player.position.z - bullet.position.z).powi(2);
                 
-                if dist < 2.0 && &bullet.owner != player_id {
+                const COLLISION_RADIUS_SQ: f32 = 4.0; // 2.0^2
+                
+                // ✅ ИСПРАВЛЕНИЕ: Проверяем что это не собственная пуля и расстояние в пределах
+                if dist_sq < COLLISION_RADIUS_SQ && dist_sq > 0.01 && &bullet.owner != player_id {
+                    let dist = dist_sq.sqrt();
                     player.health -= bullet.damage as i32;
-                    log::info!("💥 {} hit {} for {} damage", bullet.owner, player_id, bullet.damage);
+                    log::info!("💥 {} hit {} for {} damage at distance {:.2}", 
+                               bullet.owner, player_id, bullet.damage, dist);
                     
                     if player.health <= 0 {
                         player.alive = false;
@@ -223,5 +277,6 @@ async fn check_collisions(room: &mut GameRoom, state: &ServerState) {
         }
     }
     
+    // Очищаем мертвые пули
     room.bullets.retain(|b| b.lifetime > 0.0);
 }

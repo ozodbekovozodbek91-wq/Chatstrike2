@@ -122,9 +122,12 @@ impl Bot {
         let visible_enemy = self.find_visible_enemy(enemies);
         
         if let Some(enemy) = visible_enemy {
-            self.brain.last_seen_enemy = Some(enemy.position.clone());
-            self.brain.search_timer = 5.0; // Ищем 5 секунд
-            self.handle_combat_state(&enemy, delta_time);
+            // ✅ ИСПРАВЛЕНИЕ: Проверяем что враг живой перед обновлением
+            if enemy.alive {
+                self.brain.last_seen_enemy = Some(enemy.position.clone());
+                self.brain.search_timer = 5.0; // Ищем 5 секунд
+                self.handle_combat_state(&enemy, delta_time);
+            }
         } else if self.brain.search_timer > 0.0 {
             // Ищем врага по последней известной позиции
             self.handle_search_state(delta_time);
@@ -169,27 +172,35 @@ impl Bot {
             };
         }
         
-        // Стреляем с учётом сложности
+        // ✅ ИСПРАВЛЕНИЕ: Стреляем с учётом сложности
         if self.shoot_cooldown <= 0.0 && self.reload_timer <= 0.0 {
             let accuracy = self.difficulty.accuracy();
             
-            // Добавляем неточность
+            // Добавляем неточность в зависимости от сложности
             if rand::random::<f32>() < accuracy {
-                log::info!("💥 Bot {} shooting at enemy", self.id);
+                log::info!("💥 Bot {} shooting at enemy (accuracy: {:.0}%)", self.id, accuracy * 100.0);
                 self.player_data.kills += 1;
                 self.shoot_cooldown = 1.0 / self.player_data.current_weapon.fire_rate();
             }
         }
         
-        // Перезарядка
-        if self.reload_timer <= 0.0 && self.shoot_cooldown <= 0.0 {
-            self.reload_timer = 2.0;
+        // ✅ ИСПРАВЛЕНИЕ: Логика перезарядки
+        if self.player_data.ammo.current <= 0 && self.reload_timer <= 0.0 {
+            log::info!("🔄 Bot {} reloading", self.id);
+            self.reload_timer = 2.0; // Время перезарядки
         }
         
-        // Движение - обходим врага
+        // Перезарядка завершена
+        if self.reload_timer <= 0.0 && self.player_data.ammo.current <= 0 {
+            self.player_data.ammo.current = self.player_data.ammo.max;
+            log::info!("✅ Bot {} reload complete", self.id);
+        }
+        
+        // ✅ ИСПРАВЛЕНИЕ: Движение - обходим врага с разумной скоростью
+        const COMBAT_STRAFE_SPEED: f32 = 80.0;
         self.player_data.velocity = Vector3 {
-            x: (rand::random::<f32>() - 0.5) * 100.0,
-            y: (rand::random::<f32>() - 0.5) * 100.0,
+            x: (rand::random::<f32>() - 0.5) * COMBAT_STRAFE_SPEED,
+            y: (rand::random::<f32>() - 0.5) * COMBAT_STRAFE_SPEED,
             z: 0.0,
         };
     }
@@ -197,17 +208,19 @@ impl Bot {
     fn handle_search_state(&mut self, delta_time: f32) {
         self.brain.state = BotState::ChaseEnemy;
         
-        if let Some(last_pos) = &self.brain.last_seen_enemy {
+        if let Some(last_pos) = &self.brain.last_seen_enemy.clone() {
             // Двигаемся к последней известной позиции
             let dx = last_pos.x - self.player_data.position.x;
             let dy = last_pos.y - self.player_data.position.y;
             let dist = (dx.powi(2) + dy.powi(2)).sqrt();
             
-            if dist > 10.0 {
-                let speed = 150.0;
+            const SEARCH_RADIUS: f32 = 10.0;
+            const CHASE_SPEED: f32 = 120.0;
+            
+            if dist > SEARCH_RADIUS {
                 self.player_data.velocity = Vector3 {
-                    x: (dx / dist) * speed,
-                    y: (dy / dist) * speed,
+                    x: (dx / dist) * CHASE_SPEED,
+                    y: (dy / dist) * CHASE_SPEED,
                     z: 0.0,
                 };
             } else {
@@ -219,14 +232,18 @@ impl Bot {
     fn handle_patrol_state(&mut self, delta_time: f32) {
         self.brain.state = BotState::Patrolling;
         
-        // Случайное движение или следование по маршруту
-        if self.last_decision_time > 2.0 {
+        // ✅ ИСПРАВЛЕНИЕ: Случайное движение с разумной скоростью
+        const PATROL_DECISION_TIME: f32 = 2.0;
+        const PATROL_SPEED: f32 = 50.0;
+        
+        if self.last_decision_time > PATROL_DECISION_TIME {
             self.player_data.velocity = Vector3 {
-                x: (rand::random::<f32>() - 0.5) * 200.0,
-                y: (rand::random::<f32>() - 0.5) * 200.0,
+                x: (rand::random::<f32>() - 0.5) * PATROL_SPEED,
+                y: (rand::random::<f32>() - 0.5) * PATROL_SPEED,
                 z: 0.0,
             };
             self.last_decision_time = 0.0;
+            log::debug!("🚶 Bot {} new patrol direction", self.id);
         }
     }
 }
@@ -258,7 +275,7 @@ impl BotManager {
         }
         
         let bot = Bot::new(username, difficulty, pathfinder);
-        log::info!("✅ Bot spawned: {} ({})", bot.player_data.username, bot.difficulty as u8);
+        log::info!("✅ Bot spawned: {} ({:?})", bot.player_data.username, bot.difficulty);
         
         self.bots.push(bot.clone());
         Some(bot)
@@ -288,13 +305,19 @@ impl BotManager {
         let total_bots = self.bots.len();
         let total_kills: i32 = self.bots.iter().map(|b| b.player_data.kills).sum();
         let total_deaths: i32 = self.bots.iter().map(|b| b.player_data.deaths).sum();
+        let alive_bots = self.bots.iter().filter(|b| b.player_data.alive).count();
         
         serde_json::json!({
             "total_bots": total_bots,
             "max_bots": self.max_bots,
-            "active_bots": self.bots.iter().filter(|b| b.player_data.alive).count(),
+            "active_bots": alive_bots,
             "total_kills": total_kills,
             "total_deaths": total_deaths,
+            "avg_kd": if total_deaths > 0 {
+                total_kills as f32 / total_deaths as f32
+            } else {
+                total_kills as f32
+            }
         })
     }
 }
