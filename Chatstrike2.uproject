@@ -2,7 +2,7 @@
     "FileVersion": 3,
     "EngineAssociation": "5.4",
     "Category": "Shooter",
-    "Description": "CS2-like hybrid FPS shooter with C++, Rust, TypeScript, Python, and shader support",
+    "Description": "CS2-like hybrid FPS shooter with mobile support (iOS/Android)",
     "Modules": [
         {
             "Name": "Chatstrike2",
@@ -11,8 +11,36 @@
             "PlatformAllowList": [
                 "Win64",
                 "Linux",
-                "Mac"
+                "Mac",
+                "IOS",
+                "Android"
             ]
+        }
+    ],
+    "Plugins": [
+        {
+            "Name": "EnhancedInput",
+            "Enabled": true
+        },
+        {
+            "Name": "GameplayAbilities",
+            "Enabled": true
+        },
+        {
+            "Name": "AndroidPermission",
+            "Enabled": true
+        },
+        {
+            "Name": "OnlineSubsystemNull",
+            "Enabled": true
+        },
+        {
+            "Name": "OnlineSubsystemSteam",
+            "Enabled": false
+        },
+        {
+            "Name": "SteamVR",
+            "Enabled": false
         }
     ]
 }
